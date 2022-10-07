@@ -1,26 +1,27 @@
 #![no_std]
 #![no_main]
+#![feature(type_alias_impl_trait)]
 
 use panic_halt as _;
+use defmt_rtt as _;
 
-#[rtic::app(device = rp_pico::hal::pac, peripherals = true)]
+#[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [XIP_IRQ, USBCTRL_IRQ, PWM_IRQ_WRAP, ADC_IRQ_FIFO])]
 mod app {
 
     use embedded_hal::digital::v2::OutputPin;
-    use fugit::MicrosDurationU32;
+    use fugit::{MicrosDurationU32, ExtU64};
     use rp_pico::{
         hal::{self, clocks::init_clocks_and_plls, timer::Alarm, watchdog::Watchdog, Sio},
         XOSC_CRYSTAL_FREQ,
     };
 
-    const SCAN_TIME_US: MicrosDurationU32 = MicrosDurationU32::secs(1);
+    defmt::timestamp!("{:?}", monotonics::now());
+    
+    #[monotonic(binds = TIMER_IRQ_0, default = true)]
+    type MyMono = rp2040_monotonic::Rp2040Monotonic;
 
     #[shared]
-    struct Shared {
-        timer: hal::Timer,
-        alarm: hal::timer::Alarm0,
-        led: hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>,
-    }
+    struct Shared {}
 
     #[local]
     struct Local {}
@@ -53,35 +54,60 @@ mod app {
             sio.gpio_bank0,
             &mut resets,
         );
-        let mut led = pins.led.into_push_pull_output();
-        led.set_low().unwrap();
 
-        let mut timer = hal::Timer::new(c.device.TIMER, &mut resets);
-        let mut alarm = timer.alarm_0().unwrap();
-        let _ = alarm.schedule(SCAN_TIME_US);
-        alarm.enable_interrupt();
+        // let timer = hal::Timer::new(c.device.TIMER, &mut resets);
+        // let mut alarm = timer.alarm_0().unwrap();
+        // let _ = alarm.schedule(SCAN_TIME_US);
+        // alarm.enable_interrupt();
 
-        (Shared { timer, alarm, led }, Local {}, init::Monotonics())
+        blink::spawn().ok();
+        foo::spawn().ok();
+
+        (Shared {}, Local {}, init::Monotonics(rp2040_monotonic::Rp2040Monotonic::new(c.device.TIMER)))
     }
 
-    #[task(
-        binds = TIMER_IRQ_0,
-        priority = 1,
-        shared = [timer, alarm, led],
-        local = [tog: bool = true],
-    )]
-    fn timer_irq(mut c: timer_irq::Context) {
-        if *c.local.tog {
-            c.shared.led.lock(|l| l.set_high().unwrap());
-        } else {
-            c.shared.led.lock(|l| l.set_low().unwrap());
+    #[idle]
+    fn idle(_: idle::Context) -> ! {
+        loop {
+            cortex_m::asm::wfi(); // put the MCU in sleep mode until interrupt occurs
         }
-        *c.local.tog = !*c.local.tog;
-
-        let mut alarm = c.shared.alarm;
-        (alarm).lock(|a| {
-            a.clear_interrupt();
-            let _ = a.schedule(SCAN_TIME_US);
-        });
     }
+
+    #[task]
+    async fn foo(_cx: foo::Context) {
+        let task1 = async {
+            let mut i = 0;
+            loop {
+                if i == 500 {
+                    break;
+                }
+                defmt::info!("hello from task 1 {}", i);
+                monotonics::delay(10.millis()).await;
+                i += 1;
+            }
+        };
+
+        let task2 = async {
+            let mut i = 0;
+            loop {
+                if i == 50 {
+                    break;
+                }
+                defmt::info!("hello from task 2 {}", i);
+                monotonics::delay(100.millis()).await;
+                i += 1;
+            }
+        };
+
+        futures::join!(task1, task2);
+
+    }
+
+
+    #[task]
+    fn blink(ctx: blink::Context) {
+        defmt::info!("hello from blink");
+        blink::spawn_after(500.millis()).ok();
+    }
+
 }
