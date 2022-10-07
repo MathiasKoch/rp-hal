@@ -13,7 +13,7 @@ repository = "https://github.com/rp-rs/rp-hal.git"
 [dependencies]
 cortex-m = "0.7.2"
 rp2040-boot2 = { version = "0.2.0", optional = true }
-rp2040-hal = { path = "../../rp2040-hal", version = "0.6.0" }
+rp2040-hal = { path = "../../rp2040-hal", version = "0.6.0", features = ["rtic-monotonic"] }
 cortex-m-rt = { version = "0.7", optional = true }
 fugit = { version = "0.3.5", features = ["defmt"] }
 usb-device= "0.2.9"
@@ -39,6 +39,7 @@ critical-section = "1.0.0"
 usbd-serial = "0.1.1"
 usbd-hid = "0.5.1"
 rp2040-monotonic = "1.1.0"
+systick-monotonic = "1.0.0"
 futures = { version = "0.3.24", default-features = false, features = ["async-await"] }
 
 defmt = "0.3.0"
